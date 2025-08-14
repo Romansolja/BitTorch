@@ -32,7 +32,7 @@ You need Python 3.x and Pip installed on your system.
      `cd BitTorch`
 
 3. Install the required packages:
-     `pip install -r requirements.txt`
+     `pip install --user -r requirements.txt`
 
      `pip install pandas yfinance torch scikit-learn matplotlib`
 
