@@ -34,6 +34,8 @@ You need Python 3.x and Pip installed on your system.
 3. Install the required packages:
      `pip install -r requirements.txt`
 
+     `pip install pandas yfinance torch scikit-learn matplotlib`
+
 ### Usage
 
 To run the script, execute the main.py file:
