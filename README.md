@@ -47,7 +47,7 @@ The script will generate three plots showing the price history, training loss, a
 
 Console Output:
 
-  Final Results:
+  `Final Results:
   Test MSE (scaled): 0.000159 (baseline: 0.000184)
   Test MAE ($): $415.34 (baseline: $444.87)
   Test MAPE: 1.25%
@@ -56,6 +56,6 @@ Console Output:
 
   Current BTC price: $34,567.89
   Next-day prediction: $34,812.34
-  Expected change: $244.45 (0.71%)
+  Expected change: $244.45 (0.71%)`
   
 (Note: Output values are examples and will change each time you run the script.)
