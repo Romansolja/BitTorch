@@ -1,13 +1,8 @@
-# ---- Core libs ----
 pandas
 numpy
 matplotlib
 yfinance
 scikit-learn
-
-# ---- PyTorch (GPU if available) ----
-# This extra index hosts the CUDA wheels. On machines without NVIDIA/CUDA,
-# pip will just fall back to CPU wheels from PyPI where available.
 --extra-index-url https://download.pytorch.org/whl/cu124
 torch
 torchvision
