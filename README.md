@@ -29,15 +29,15 @@ You need Python 3.x and Pip installed on your system.
    git clone [https://github.com/Romansolja/BitTorch.git](https://github.com/Romansolja/BitTorch.git)
 
 2. Navigate to the project directory:
-     cd BitTorch
+     `cd BitTorch`
 
 3. Install the required packages:
-     pip install -r requirements.txt
+     `pip install -r requirements.txt`
 
 ### Usage
 
 To run the script, execute the main.py file:
-  python main.py
+  `python main.py`
 
 The script will automatically download the data, train the model, and display the evaluation plots and the final prediction in the console.
 
