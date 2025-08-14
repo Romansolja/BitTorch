@@ -25,6 +25,7 @@ You need Python 3.x and Pip installed on your system.
 ### Installation
 
 1. Clone the repository:
+   ```sh
    git clone [https://github.com/Romansolja/BitTorch.git](https://github.com/Romansolja/BitTorch.git)
 
 2. Navigate to the project directory:
