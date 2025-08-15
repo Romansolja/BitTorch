@@ -4,16 +4,23 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import time
+from datetime import datetime, timedelta
 
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 # 1) Get device
+print("=" * 60)
+print("BTC Price Prediction With PyTorch")
+print("=" * 60)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
+print("-" * 60)
 
 # 2) Download & plot BTC data
 btc = yf.download("BTC-USD", period="2y", interval="1d", auto_adjust=True)
