@@ -22,18 +22,27 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 print("-" * 60)
 
-# 2) Download & plot BTC data
-btc = yf.download("BTC-USD", period="2y", interval="1d", auto_adjust=True)
+# 2) Download & plot BTC data (REWROTE)
+print("Downloading Bitcoin data from Yahoo Finance...")
+print("This may take 5-15 seconds depending on connection speed")
+start_time = time.time()
+btc = yf.download("BTC-USD", period="2y", interval="1d", auto_adjust=True, progress=False)
 btc.reset_index(inplace=True)
+download_time = time.time() - start_time
+print(f"Download complete! ({download_time:.1f} seconds)")
+print(f"Downloaded {len(btc)} days of Bitcoin price data")
+print("-" * 60)
 
+# Non-blocking plot
+print("Generating price history plot (window will open in background)...")
 plt.figure(figsize=(12, 6))
 plt.plot(btc["Date"], btc["Close"])
 plt.title("Bitcoin Price History")
 plt.xlabel("Date")
 plt.ylabel("Price (USD)")
 plt.grid(True, alpha=0.3)
-plt.show()
-
+plt.show(block=False)
+plt.pause(0.1)  # Ensures plots render properly
 
 # 3) Create sequences BEFORE splitting to maintain temporal order
 def create_sequences(data, seq_len):
