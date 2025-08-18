@@ -3,8 +3,9 @@ from contextlib import asynccontextmanager
 import torch
 import sys
 from pathlib import Path
+from typing import List, Optional
+from datetime import datetime
 
-# Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.services.prediction import prediction_service
@@ -53,3 +54,63 @@ def predict_next_day():
         return prediction
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/predict/next-day")
+def predict_next_day(save_to_db: bool = True):
+    """Get prediction for next day's Bitcoin price
+
+    Args:
+        save_to_db: Whether to save this prediction to database (default: True)
+    """
+    try:
+        prediction = prediction_service.predict_next_day()
+        if prediction is None:
+            raise HTTPException(status_code=503,
+                                detail="Model not loaded. Please train the model first.")
+
+        # Save to database if requested
+        if save_to_db:
+            prediction_id = prediction_service.save_prediction(prediction)
+            prediction["prediction_id"] = prediction_id
+            prediction["saved"] = True
+        else:
+            prediction["saved"] = False
+
+        return prediction
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/predictions/history")
+def get_prediction_history(limit: int = 10):
+    """Get history of recent predictions
+
+    Args:
+        limit: Number of recent predictions to return (default: 10)
+    """
+    try:
+        history = prediction_service.get_prediction_history(limit)
+        return {
+            "count": len(history),
+            "predictions": [
+                {
+                    "id": p.id,
+                    "prediction_date": p.prediction_date.isoformat(),
+                    "current_price": p.current_price,
+                    "predicted_price": p.predicted_price,
+                    "actual_price": p.actual_price,
+                    "created_at": p.created_at.isoformat()
+                }
+                for p in history
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/predictions/accuracy")
+def get_prediction_accuracy():
+    """Calculate accuracy of past predictions where actual prices are known"""
+    # We'll implement this after we have some data
+    return {"message": "Coming soon - need historical data first"}
