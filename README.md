@@ -1,4 +1,4 @@
-**Key Features**
+### Key Features
 *RESTful API*: Built with FastAPI, providing a clean and interactive interface for getting predictions.
 
 *Database Integration*: Uses SQLAlchemy and a SQLite database to store prediction history and model performance metrics.
