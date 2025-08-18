@@ -44,19 +44,6 @@ def health_check():
     }
 
 @app.get("/predict/next-day")
-def predict_next_day():
-    """Get prediction for next day's Bitcoin price"""
-    try:
-        prediction = prediction_service.predict_next_day()
-        if prediction is None:
-            raise HTTPException(status_code=503, 
-                              detail="Model not loaded. Please train the model first.")
-        return prediction
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/predict/next-day")
 def predict_next_day(save_to_db: bool = True):
     """Get prediction for next day's Bitcoin price
 
@@ -80,7 +67,6 @@ def predict_next_day(save_to_db: bool = True):
         return prediction
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/predictions/history")
 def get_prediction_history(limit: int = 10):
@@ -107,7 +93,6 @@ def get_prediction_history(limit: int = 10):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/predictions/accuracy")
 def get_prediction_accuracy():
