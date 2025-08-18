@@ -1,20 +1,28 @@
-# BitTorch: Bitcoin Price Prediction with PyTorch
+**Key Features**
+*RESTful API*: Built with FastAPI, providing a clean and interactive interface for getting predictions.
 
-A simple LSTM neural network built with PyTorch to predict the next-day closing price of Bitcoin (BTC-USD).
+*Database Integration*: Uses SQLAlchemy and a SQLite database to store prediction history and model performance metrics.
 
-## Description
+*Historical Tracking*: All predictions are saved to the database, allowing you to track performance and analyze historical data.
 
-This script downloads the last ~2 years of Bitcoin daily prices, trains a small LSTM neural network to predict tomorrow’s closing price from the last 7 days, and compares the model to a simple baseline ("tomorrow ≈ today").
+*Automated Accuracy Metrics*: The API can fetch the actual closing prices for past predictions and calculate Mean Absolute Percentage Error (MAPE) and other metrics to evaluate model accuracy over time.
 
-The model reports whether it beats the baseline and visualizes its performance with several plots.
+*PyTorch LSTM Model*: A LSTM neural network for time-series forecasting.
 
-### Key Features:
-- **Data Acquisition:** Downloads the latest daily BTC-USD data from Yahoo Finance.
-- **Data Processing:** Uses `MinMaxScaler` to normalize prices and correctly splits data into training, validation, and test sets to prevent data leakage.
-- **LSTM Model:** A simple, commented LSTM model built with PyTorch.
-- **Robust Training:** Implements a full training loop with a baseline comparison, early stopping, and a learning rate scheduler.
-- **Evaluation:** Reports key metrics like MSE, MAE (in dollars), and MAPE.
-- **Prediction:** Makes a final prediction for the next day's price based on the most recent data.
+**API Endpoints**
+The following endpoints are available:
+
+`GET /`: A welcome message to confirm the API is running.
+
+`GET /health`: A health check endpoint that returns the status of the API, GPU availability, and whether the model is loaded.
+
+`GET /predict/next-day`: Returns the next-day price prediction for Bitcoin. You can choose whether to save the prediction to the database.
+
+`GET /predictions/history`: Retrieves a list of the most recent predictions from the database.
+
+`GET /predictions/accuracy`: Calculates and returns accuracy metrics (MAE, MAPE) for all predictions where the actual price is known.
+
+`POST /predictions/update-actual-prices`: Fetches the latest Bitcoin prices to update past predictions with the actual closing price.
 
 ---
 
@@ -33,14 +41,22 @@ You need Python 3.x and Pip installed on your system.
 
 3. Install the required packages:
      `pip install --user -r requirements.txt`
-   
 
 ### Usage
+1. Train the Model:
 
-To run the script, execute the main.py file:
+If you don't have a trained model file `best_model.pth`, run the training script first:
   `python main.py`
 
-The script will automatically download the data, train the model, and display the evaluation plots and the final prediction in the console.
+This will download the latest data, train the model, and save `best_model.pth` in the data/models directory.
+
+2. Run the FastAPI Server:
+   ```sh
+   uvicorn app.main:app --reload
+
+3. Access the API:
+
+The API will be available at `http://127.0.0.1:8000`. You can access the interactive documentation at `http://127.0.0.1:8000/docs`.
 
 ### Example Output
 
