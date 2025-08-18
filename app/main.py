@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
+from app.services.price_updater import price_updater
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -97,5 +98,13 @@ def get_prediction_history(limit: int = 10):
 @app.get("/predictions/accuracy")
 def get_prediction_accuracy():
     """Calculate accuracy of past predictions where actual prices are known"""
-    # We'll implement this after we have some data
-    return {"message": "Coming soon - need historical data first"}
+    metrics = price_updater.calculate_accuracy_metrics()
+    if metrics is None:
+        return {"message": "No predictions with actual prices yet. Run /predictions/update-actual-prices first"}
+    return metrics
+
+@app.post("/predictions/update-actual-prices")
+def update_actual_prices():
+    """Fetch actual Bitcoin prices and update past predictions"""
+    result = price_updater.update_actual_prices()
+    return result
