@@ -8,6 +8,10 @@ import os
 from app.models.ml_models import BitcoinLSTM
 from app.config import MODEL_PATH, SEQUENCE_LENGTH
 
+from sqlalchemy.orm import Session
+from app.database import SessionLocal, PricePrediction
+from datetime import datetime, timedelta
+
 
 class PredictionService:
     def __init__(self):
@@ -68,6 +72,34 @@ class PredictionService:
             "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
+    def save_prediction(self, prediction_data):
+        """Save prediction to database"""
+        db = SessionLocal()
+        try:
+            db_prediction = PricePrediction(
+                current_price=prediction_data["current_price"],
+                predicted_price=prediction_data["predicted_price"],
+                prediction_date=datetime.now() + timedelta(days=1),  # Tomorrow
+                created_at=datetime.now()
+            )
+            db.add(db_prediction)
+            db.commit()
+            db.refresh(db_prediction)
+            return db_prediction.id
+        finally:
+            db.close()
+
+    def get_prediction_history(self, limit=10):
+        """Get recent predictions from database"""
+        db = SessionLocal()
+        try:
+            predictions = db.query(PricePrediction) \
+                .order_by(PricePrediction.created_at.desc()) \
+                .limit(limit) \
+                .all()
+            return predictions
+        finally:
+            db.close()
 
 # Create singleton instance
 prediction_service = PredictionService()
