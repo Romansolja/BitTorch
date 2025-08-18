@@ -1,0 +1,84 @@
+import yfinance as yf
+from datetime import datetime, timedelta
+from app.database import SessionLocal, PricePrediction
+from sqlalchemy import and_
+
+
+class PriceUpdater:
+    def update_actual_prices(self):
+        """Check and update actual prices for past predictions"""
+        db = SessionLocal()
+        try:
+            # Get predictions that need actual price updates
+            yesterday = datetime.now() - timedelta(days=1)
+            week_ago = datetime.now() - timedelta(days=7)
+
+            # Find predictions without actual prices from the past week
+            predictions = db.query(PricePrediction).filter(
+                and_(
+                    PricePrediction.actual_price.is_(None),
+                    PricePrediction.prediction_date <= yesterday,
+                    PricePrediction.prediction_date >= week_ago
+                )
+            ).all()
+
+            if not predictions:
+                return {"message": "No predictions to update", "count": 0}
+
+            # Get Bitcoin price history for the date range
+            btc = yf.download("BTC-USD",
+                              start=week_ago.date(),
+                              end=datetime.now().date(),
+                              interval="1d",
+                              progress=False)
+
+            updated_count = 0
+            for pred in predictions:
+                # Find the actual price for the prediction date
+                pred_date = pred.prediction_date.date()
+                if pred_date in btc.index.date:
+                    actual_price = float(btc.loc[btc.index.date == pred_date, 'Close'].iloc[0])
+                    pred.actual_price = actual_price
+                    updated_count += 1
+
+            db.commit()
+            return {"message": f"Updated {updated_count} predictions", "count": updated_count}
+
+        except Exception as e:
+            db.rollback()
+            return {"error": str(e)}
+        finally:
+            db.close()
+
+    def calculate_accuracy_metrics(self):
+        """Calculate accuracy metrics for predictions with actual prices"""
+        db = SessionLocal()
+        try:
+            # Get all predictions with actual prices
+            predictions = db.query(PricePrediction).filter(
+                PricePrediction.actual_price.isnot(None)
+            ).all()
+
+            if not predictions:
+                return None
+
+            errors = []
+            percentage_errors = []
+
+            for pred in predictions:
+                error = abs(pred.predicted_price - pred.actual_price)
+                errors.append(error)
+                percentage_errors.append((error / pred.actual_price) * 100)
+
+            return {
+                "total_predictions": len(predictions),
+                "mae": sum(errors) / len(errors),
+                "mape": sum(percentage_errors) / len(percentage_errors),
+                "best_prediction_error": min(errors),
+                "worst_prediction_error": max(errors)
+            }
+        finally:
+            db.close()
+
+
+price_updater = PriceUpdater()
