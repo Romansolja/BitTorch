@@ -1,3 +1,7 @@
+# BitTorch: Bitcoin Price Prediction with PyTorch
+
+A simple LSTM neural network built with PyTorch to predict the next-day closing price of Bitcoin (BTC-USD).
+
 ### Key Features
 *RESTful API*: Built with FastAPI, providing a clean and interactive interface for getting predictions.
 
