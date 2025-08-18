@@ -108,3 +108,58 @@ def update_actual_prices():
     """Fetch actual Bitcoin prices and update past predictions"""
     result = price_updater.update_actual_prices()
     return result
+
+@app.get("/predictions/debug")
+def debug_predictions():
+    """Debug endpoint to see all prediction dates"""
+    from app.database import SessionLocal, PricePrediction
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        predictions = db.query(PricePrediction).all()
+        now = datetime.now()
+        return {
+            "current_time": now.isoformat(),
+            "total_predictions": len(predictions),
+            "predictions": [
+                {
+                    "id": p.id,
+                    "prediction_date": p.prediction_date.isoformat(),
+                    "is_past": p.prediction_date <= now,
+                    "actual_price": p.actual_price,
+                    "predicted_price": p.predicted_price,
+                    "current_price": p.current_price
+                }
+                for p in predictions
+            ]
+        }
+    finally:
+        db.close()
+
+@app.post("/test/create-past-prediction")
+def create_test_past_prediction():
+    """Create a test prediction for yesterday to test the update functionality"""
+    from app.database import SessionLocal, PricePrediction
+    from datetime import datetime, timedelta
+
+    db = SessionLocal()
+    try:
+        # Create a prediction for yesterday
+        yesterday = datetime.now() - timedelta(days=1)
+        test_pred = PricePrediction(
+            current_price=110000.0,
+            predicted_price=112000.0,
+            prediction_date=yesterday,
+            created_at=yesterday
+        )
+        db.add(test_pred)
+        db.commit()
+        db.refresh(test_pred)
+        return {
+            "message": "Created test prediction for yesterday",
+            "id": test_pred.id,
+            "prediction_date": test_pred.prediction_date.isoformat()
+        }
+    finally:
+        db.close()

@@ -2,15 +2,12 @@ import torch
 import numpy as np
 import yfinance as yf
 from sklearn.preprocessing import MinMaxScaler
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
-
-from app.models.ml_models import BitcoinLSTM
-from app.config import MODEL_PATH, SEQUENCE_LENGTH
-
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, PricePrediction
-from datetime import datetime, timedelta
+from app.models.ml_models import BitcoinLSTM
+from app.config import MODEL_PATH, SEQUENCE_LENGTH
 
 
 class PredictionService:
@@ -24,14 +21,11 @@ class PredictionService:
         """Load the trained model from disk"""
         self.model = BitcoinLSTM().to(self.device)
 
-        # Check if model file exists
         if os.path.exists(MODEL_PATH):
             self.model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device))
             self.model.eval()
             return True
         else:
-            # For now, use the model from original main.py
-            # Copy best_model.pth to data/models/ directory
             return False
 
     def get_latest_data(self, days=30):
@@ -85,7 +79,12 @@ class PredictionService:
             db.add(db_prediction)
             db.commit()
             db.refresh(db_prediction)
+            print(f"Saved prediction with ID: {db_prediction.id}")  # Debug line
             return db_prediction.id
+        except Exception as e:
+            print(f"Error saving prediction: {e}")  # Debug line
+            db.rollback()
+            raise e
         finally:
             db.close()
 
@@ -97,9 +96,11 @@ class PredictionService:
                 .order_by(PricePrediction.created_at.desc()) \
                 .limit(limit) \
                 .all()
+            print(f"Found {len(predictions)} predictions in database")  # Debug line
             return predictions
         finally:
             db.close()
+
 
 # Create singleton instance
 prediction_service = PredictionService()
