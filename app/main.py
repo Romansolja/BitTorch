@@ -24,8 +24,7 @@ from app.auth import auth_service
 from app.database import SessionLocal, PricePrediction, ModelMetrics, APIKey
 from app.middleware import rate_limiter
 
-from app.websocket import manager, price_fetcher, handle_client_message
-
+from app.websocket import manager, price_fetcher, chart_manager, handle_client_message, heartbeat_task
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,16 +36,21 @@ async def lifespan(app: FastAPI):
     else:
         print("No saved model found, you need to train first")
 
-    # Start WebSocket price fetcher
-    print("Starting WebSocket price fetcher...")
+    # Start WebSocket services
+    print("Starting WebSocket services...")
     price_task = asyncio.create_task(price_fetcher.start())
+    chart_task = asyncio.create_task(chart_manager.start())
+    heartbeat = asyncio.create_task(heartbeat_task())
 
     yield
 
     # Cleanup on shutdown
     print("Shutting down...")
     await price_fetcher.stop()
+    await chart_manager.stop()
     price_task.cancel()
+    chart_task.cancel()
+    heartbeat.cancel()
 
 
 app = FastAPI(
@@ -452,4 +456,55 @@ async def toggle_rapid_mode(enabled: bool = True, api_key: str = Depends(require
     return {
         "rapid_mode": enabled,
         "interval": price_fetcher.quick_fetch_interval if enabled else price_fetcher.fetch_interval
+    }
+
+
+@app.websocket("/ws/chart/{symbol}")
+async def chart_websocket(websocket: WebSocket, symbol: str = "BTC-USD", interval: str = "1m"):
+    """WebSocket endpoint for historical chart data streaming"""
+    await manager.connect(websocket, connection_type="chart")
+
+    # Auto-subscribe to requested symbol and interval
+    await manager.subscribe_to_chart(websocket, symbol, interval)
+
+    # Send initial chart data
+    from app.websocket import TimeFrame
+    if interval in [tf.value for tf in TimeFrame]:
+        chart_data = await chart_manager.fetch_chart_data(symbol, TimeFrame(interval))
+        await manager.send_personal_message({
+            "type": "chart_initial",
+            "symbol": symbol,
+            "interval": interval,
+            "data": chart_data
+        }, websocket)
+
+    try:
+        while True:
+            # Wait for messages from client
+            message = await websocket.receive_text()
+            await handle_client_message(websocket, message)
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+    except Exception as e:
+        print(f"Chart WebSocket error: {e}")
+        await manager.disconnect(websocket)
+
+
+# Add chart status endpoint
+@app.get("/ws/chart/status")
+async def chart_status():
+    """Get chart streaming status"""
+    subscriptions = []
+    for ws, sub in manager.chart_subscriptions.items():
+        subscriptions.append({
+            "symbol": sub.get("symbol"),
+            "interval": sub.get("interval"),
+            "subscribed_at": sub.get("subscribed_at").isoformat() if sub.get("subscribed_at") else None
+        })
+
+    return {
+        "total_chart_subscribers": len(manager.chart_subscriptions),
+        "subscriptions": subscriptions,
+        "cache_size": len(chart_manager.chart_cache),
+        "supported_intervals": ["1m", "5m", "15m", "1h", "1d"]
     }
