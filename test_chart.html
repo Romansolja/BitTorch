@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BitTorch Chart Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.0.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { font-family: Arial; margin: 20px; background: #1a1a1a; color: white; }
+        #chart { height: 500px; margin: 20px 0; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; }
+        .info { background: #2a2a2a; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>BitTorch Chart Streaming</h1>
+
+    <div class="controls">
+        <button onclick="connect('BTC-USD', '1m')">BTC 1min</button>
+        <button onclick="connect('BTC-USD', '5m')">BTC 5min</button>
+        <button onclick="connect('ETH-USD', '1m')">ETH 1min</button>
+        <button onclick="disconnect()">Disconnect</button>
+    </div>
+
+    <div id="chart"></div>
+    <div class="info" id="info">Not connected</div>
+
+    <script>
+        let ws = null;
+        let chart = null;
+        let candleSeries = null;
+
+        // Initialize chart
+        const chartElement = document.getElementById('chart');
+        chart = LightweightCharts.createChart(chartElement, {
+            layout: { background: { color: '#1a1a1a' }, textColor: '#d1d4dc' },
+            grid: { vertLines: { color: '#2a2a2a' }, horzLines: { color: '#2a2a2a' } }
+        });
+
+        candleSeries = chart.addCandlestickSeries();
+
+        function connect(symbol, interval) {
+            if (ws) ws.close();
+
+            ws = new WebSocket(`ws://localhost:8000/ws/chart/${symbol}?interval=${interval}`);
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'chart_initial' || data.type === 'chart_update') {
+                    updateChart(data.data);
+                    updateInfo(data);
+                }
+            };
+
+            ws.onerror = (error) => console.error('WebSocket error:', error);
+            ws.onclose = () => document.getElementById('info').textContent = 'Disconnected';
+        }
+
+        function updateChart(data) {
+            if (!data.candles) return;
+
+            const chartData = data.candles.map(c => ({
+                time: new Date(c.time).getTime() / 1000,
+                open: c.open,
+                high: c.high,
+                low: c.low,
+                close: c.close
+            }));
+
+            candleSeries.setData(chartData);
+            chart.timeScale().fitContent();
+        }
+
+        function updateInfo(data) {
+            const info = data.data.summary;
+            document.getElementById('info').innerHTML = `
+                <strong>${data.symbol}</strong> (${data.interval})<br>
+                Price: $${info.current.toFixed(2)}<br>
+                24h Change: ${info.change_24h.toFixed(2)}%<br>
+                24h High: $${info.high_24h.toFixed(2)}<br>
+                24h Low: $${info.low_24h.toFixed(2)}<br>
+                RSI: ${data.data.indicators.rsi?.toFixed(2) || 'N/A'}
+            `;
+        }
+
+        function disconnect() {
+            if (ws) ws.close();
+        }
+    </script>
+</body>
+</html>
