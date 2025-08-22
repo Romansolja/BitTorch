@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request, status, WebSocket, WebSocketDisconnect
 from contextlib import asynccontextmanager
 from fastapi.responses import JSONResponse
 import torch
 import sys
+import asyncio
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -23,6 +24,8 @@ from app.auth import auth_service
 from app.database import SessionLocal, PricePrediction, ModelMetrics, APIKey
 from app.middleware import rate_limiter
 
+from app.websocket import manager, price_fetcher, handle_client_message
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -33,9 +36,17 @@ async def lifespan(app: FastAPI):
         print("Model loaded successfully")
     else:
         print("No saved model found, you need to train first")
+
+    # Start WebSocket price fetcher
+    print("Starting WebSocket price fetcher...")
+    price_task = asyncio.create_task(price_fetcher.start())
+
     yield
+
     # Cleanup on shutdown
     print("Shutting down...")
+    await price_fetcher.stop()
+    price_task.cancel()
 
 
 app = FastAPI(
@@ -373,3 +384,72 @@ def create_test_past_prediction():
         }
     finally:
         db.close()
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """Main WebSocket endpoint for real-time BTC prices"""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Wait for messages from client
+            message = await websocket.receive_text()
+            await handle_client_message(websocket, message)
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        await manager.disconnect(websocket)
+
+
+@app.websocket("/ws/simple")
+async def simple_websocket(websocket: WebSocket):
+    """Simplified WebSocket - just receives price updates, no commands"""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Just keep the connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+
+
+@app.get("/ws/status")
+async def websocket_status():
+    """Get WebSocket connection status"""
+    return {
+        "active_connections": len(manager.active_connections),
+        "latest_price": manager.latest_price_data.get("price", 0),
+        "last_update": manager.latest_price_data.get("timestamp", ""),
+        "history_points": len(manager.price_history),
+        "rapid_mode": price_fetcher.use_rapid_mode
+    }
+
+
+@app.post("/ws/broadcast")
+async def manual_broadcast(message: dict, api_key: str = Depends(require_admin)):
+    """Manually broadcast a message to all WebSocket clients (admin only)"""
+    await manager.broadcast({
+        "type": "admin_message",
+        "data": message,
+        "timestamp": datetime.now().isoformat()
+    })
+    return {"message": f"Broadcasted to {len(manager.active_connections)} clients"}
+
+
+@app.post("/ws/rapid-mode")
+async def toggle_rapid_mode(enabled: bool = True, api_key: str = Depends(require_admin)):
+    """Toggle rapid price updates (5s instead of 30s) - admin only"""
+    price_fetcher.set_rapid_mode(enabled)
+
+    # Notify all clients
+    await manager.broadcast({
+        "type": "rapid_mode_change",
+        "enabled": enabled,
+        "interval": price_fetcher.quick_fetch_interval if enabled else price_fetcher.fetch_interval
+    })
+
+    return {
+        "rapid_mode": enabled,
+        "interval": price_fetcher.quick_fetch_interval if enabled else price_fetcher.fetch_interval
+    }
