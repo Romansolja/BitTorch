@@ -2,81 +2,119 @@
 
 A simple LSTM neural network built with PyTorch to predict the next-day closing price of Bitcoin (BTC-USD).
 
-### Key Features
-*RESTful API*: Built with FastAPI, providing a clean and interactive interface for getting predictions.
+## Features
 
-*Database Integration*: Uses SQLAlchemy and a SQLite database to store prediction history and model performance metrics.
+- **LSTM Neural Network**: 2-layer LSTM with dropout for time-series forecasting
+- **FastAPI REST API**: Clean interface for making predictions
+- **Prediction Tracking**: SQLite database stores all predictions for accuracy analysis
+- **Accuracy Metrics**: Automatically calculates MAE and MAPE against actual prices
 
-*Historical Tracking*: All predictions are saved to the database, allowing you to track performance and analyze historical data.
+## Project Structure
 
-*Automated Accuracy Metrics*: The API can fetch the actual closing prices for past predictions and calculate Mean Absolute Percentage Error (MAPE) and other metrics to evaluate model accuracy over time.
+```
+BitTorch/
+├── app/
+│   ├── __init__.py
+│   ├── config.py           # Configuration settings
+│   ├── database.py         # SQLAlchemy models
+│   ├── main.py             # FastAPI application
+│   ├── schemas.py          # Pydantic models
+│   ├── models/
+│   │   └── ml_models.py    # PyTorch LSTM model
+│   └── services/
+│       ├── prediction.py   # Prediction logic
+│       └── price_updater.py # Actual price fetching
+├── data/
+│   └── models/             # Trained model storage
+├── main.py                 # Training script
+├── requirements.txt
+└── README.md
+```
 
-*PyTorch LSTM Model*: A LSTM neural network for time-series forecasting.
-
-**API Endpoints**
-The following endpoints are available:
-
-`GET /`: A welcome message to confirm the API is running.
-
-`GET /health`: A health check endpoint that returns the status of the API, GPU availability, and whether the model is loaded.
-
-`GET /predict/next-day`: Returns the next-day price prediction for Bitcoin. You can choose whether to save the prediction to the database.
-
-`GET /predictions/history`: Retrieves a list of the most recent predictions from the database.
-
-`GET /predictions/accuracy`: Calculates and returns accuracy metrics (MAE, MAPE) for all predictions where the actual price is known.
-
-`POST /predictions/update-actual-prices`: Fetches the latest Bitcoin prices to update past predictions with the actual closing price.
-
----
-
-### Prerequisites
-
-You need Python 3.x and Pip installed on your system.
-
-### Installation
+## Installation
 
 1. Clone the repository:
-   ```sh
-   git clone [https://github.com/Romansolja/BitTorch.git](https://github.com/Romansolja/BitTorch.git)
+   ```bash
+   git clone https://github.com/Romansolja/BitTorch.git
+   cd BitTorch
+   ```
 
-2. Navigate to the project directory:
-     `cd BitTorch`
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Install the required packages:
-     `pip install --user -r requirements.txt`
+## Usage
 
-### Usage
-1. Train the Model:
+### 1. Train the Model
 
-If you don't have a trained model file `best_model.pth`, run the training script first:
-  `python main.py`
+```bash
+python main.py
+```
 
-This will download the latest data, train the model, and save `best_model.pth` in the data/models directory.
+This downloads 2 years of BTC data, trains the LSTM model, and saves `best_model.pth` to `data/models/`.
 
-2. Run the FastAPI Server:
-   ```sh
-   uvicorn app.main:app --reload
+### 2. Run the API
 
-3. Access the API:
+```bash
+uvicorn app.main:app --reload
+```
 
-The API will be available at `http://127.0.0.1:8000`. You can access the interactive documentation at `http://127.0.0.1:8000/docs`.
+The API will be available at `http://127.0.0.1:8000`
 
-### Example Output
+Interactive docs at `http://127.0.0.1:8000/docs`
 
-The script will generate three plots showing the price history, training loss, and a comparison of actual vs. predicted prices on the test set.
+## API Endpoints
 
-Console Output:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Welcome message |
+| GET | `/health` | API status, GPU info, model status |
+| GET | `/predict/next-day` | Get next-day price prediction |
+| GET | `/predictions/history` | View recent predictions |
+| GET | `/predictions/accuracy` | Calculate prediction accuracy |
+| POST | `/predictions/update-actual-prices` | Update predictions with actual prices |
 
-  `Final Results:`
-  `Test MSE (scaled): 0.000159 (baseline: 0.000184)`
-  `Test MAE ($): $415.34 (baseline: $444.87)`
-  `Test MAPE: 1.25%`
+### Example: Get Prediction
 
-  `Model improvement over baseline: 6.6%`
+```bash
+curl http://127.0.0.1:8000/predict/next-day
+```
 
-  `Current BTC price: $34,567.89`
-  `Next-day prediction: $34,812.34`
-  `Expected change: $244.45 (0.71%)`
-  
-(Note: Output values are examples and will change each time you run the script.)
+Response:
+```json
+{
+  "current_price": 105000.00,
+  "predicted_price": 106250.00,
+  "change_amount": 1250.00,
+  "change_percent": 1.19,
+  "prediction_date": "2025-01-26 10:30:00",
+  "prediction_id": 1,
+  "saved": true
+}
+```
+
+## Model Performance
+
+The LSTM model is trained with:
+- 70/20/10 train/val/test split
+- Early stopping with patience of 15 epochs
+- Learning rate scheduling
+- Gradient clipping
+
+Typical results:
+- Test MAPE: ~1-2%
+- Improvement over baseline: 5-10%
+
+## Requirements
+
+- Python 3.8+
+- PyTorch
+- FastAPI
+- yfinance
+- SQLAlchemy
+- scikit-learn
+
+## License
+
+MIT License - see [LICENSE](LICENSE)
