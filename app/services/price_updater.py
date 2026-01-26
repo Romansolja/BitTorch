@@ -1,94 +1,105 @@
+import torch
+import numpy as np
 import yfinance as yf
+from sklearn.preprocessing import MinMaxScaler
 from datetime import datetime, timedelta
+import os
+
 from app.database import SessionLocal, PricePrediction
-from sqlalchemy import and_
+from app.models.ml_models import BitcoinLSTM
+from app.config import MODEL_PATH, SEQUENCE_LENGTH
 
 
-class PriceUpdater:
-    def update_actual_prices(self):
-        """Check and update actual prices for past predictions"""
+class PredictionService:
+    def __init__(self):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = None
+        self.scaler = MinMaxScaler()
+        self.seq_len = SEQUENCE_LENGTH
+
+    def load_model(self) -> bool:
+        """Load the trained model from disk"""
+        self.model = BitcoinLSTM().to(self.device)
+
+        if os.path.exists(MODEL_PATH):
+            self.model.load_state_dict(
+                torch.load(MODEL_PATH, map_location=self.device)
+            )
+            self.model.eval()
+            return True
+        return False
+
+    def get_latest_data(self, days: int = 30):
+        """Fetch latest Bitcoin data from Yahoo Finance"""
+        btc = yf.download(
+            "BTC-USD", 
+            period=f"{days}d", 
+            interval="1d",
+            auto_adjust=True, 
+            progress=False
+        )
+        return btc["Close"].values.reshape(-1, 1)
+
+    def predict_next_day(self) -> dict | None:
+        """Make prediction for next day's price"""
+        if self.model is None:
+            return None
+
+        # Get recent data
+        prices = self.get_latest_data(days=30)
+
+        # Fit scaler and transform
+        self.scaler.fit(prices)
+        prices_scaled = self.scaler.transform(prices)
+
+        # Get last sequence
+        last_seq = prices_scaled[-self.seq_len:].reshape(1, self.seq_len, 1)
+        inp = torch.tensor(last_seq).float().to(self.device)
+
+        # Predict
+        with torch.no_grad():
+            pred_scaled = self.model(inp).cpu().numpy()
+
+        # Inverse transform
+        pred_price = self.scaler.inverse_transform(pred_scaled)[0][0]
+        current_price = prices[-1][0]
+
+        return {
+            "current_price": float(current_price),
+            "predicted_price": float(pred_price),
+            "change_amount": float(pred_price - current_price),
+            "change_percent": float((pred_price / current_price - 1) * 100),
+            "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    def save_prediction(self, prediction_data: dict) -> int:
+        """Save prediction to database"""
         db = SessionLocal()
         try:
-            # First, let's see ALL predictions in the database
-            all_predictions = db.query(PricePrediction).all()
-            print(f"Total predictions in database: {len(all_predictions)}")
-
-            # Get predictions that need actual price updates
-            # Changed to be more inclusive - any prediction from the past without actual price
-            now = datetime.now()
-
-            predictions = db.query(PricePrediction).filter(
-                and_(
-                    PricePrediction.actual_price.is_(None),
-                    PricePrediction.prediction_date <= now  # Any past prediction
-                )
-            ).all()
-
-            print(f"Found {len(predictions)} predictions needing updates")
-
-            if not predictions:
-                # Let's see what dates we have
-                for p in all_predictions[:5]:  # Show first 5
-                    print(f"  - Prediction ID {p.id}: pred_date={p.prediction_date}, actual_price={p.actual_price}")
-                return {"message": "No predictions to update", "count": 0, "total_in_db": len(all_predictions)}
-
-            # Get Bitcoin price history for the date range
-            earliest_date = min(p.prediction_date for p in predictions)
-            btc = yf.download("BTC-USD",
-                              start=earliest_date.date(),
-                              end=now.date() + timedelta(days=1),
-                              interval="1d",
-                              progress=False)
-
-            updated_count = 0
-            for pred in predictions:
-                # Find the actual price for the prediction date
-                pred_date = pred.prediction_date.date()
-                if pred_date in btc.index.date:
-                    actual_price = float(btc.loc[btc.index.date == pred_date, 'Close'].iloc[0])
-                    pred.actual_price = actual_price
-                    updated_count += 1
-                    print(f"Updated prediction {pred.id} with actual price: ${actual_price:.2f}")
-
+            db_prediction = PricePrediction(
+                current_price=prediction_data["current_price"],
+                predicted_price=prediction_data["predicted_price"],
+                prediction_date=datetime.now() + timedelta(days=1),
+                created_at=datetime.now()
+            )
+            db.add(db_prediction)
             db.commit()
-            return {"message": f"Updated {updated_count} predictions", "count": updated_count}
-
-        except Exception as e:
-            db.rollback()
-            print(f"Error in update_actual_prices: {e}")
-            return {"error": str(e)}
+            db.refresh(db_prediction)
+            return db_prediction.id
         finally:
             db.close()
 
-    def calculate_accuracy_metrics(self):
-        """Calculate accuracy metrics for predictions with actual prices"""
+    def get_prediction_history(self, limit: int = 10):
+        """Get recent predictions from database"""
         db = SessionLocal()
         try:
-            # Get all predictions with actual prices
-            predictions = db.query(PricePrediction).filter(
-                PricePrediction.actual_price.isnot(None)
-            ).all()
-
-            if not predictions:
-                return None
-
-            errors = []
-            percentage_errors = []
-
-            for pred in predictions:
-                error = abs(pred.predicted_price - pred.actual_price)
-                errors.append(error)
-                percentage_errors.append((error / pred.actual_price) * 100)
-
-            return {
-                "total_predictions": len(predictions),
-                "mae": sum(errors) / len(errors),
-                "mape": sum(percentage_errors) / len(percentage_errors),
-                "best_prediction_error": min(errors),
-                "worst_prediction_error": max(errors)
-            }
+            return db.query(PricePrediction) \
+                .order_by(PricePrediction.created_at.desc()) \
+                .limit(limit) \
+                .all()
         finally:
             db.close()
 
 
-price_updater = PriceUpdater()
+# Singleton instance
+prediction_service = PredictionService()
