@@ -2,22 +2,27 @@ import torch
 import torch.nn as nn
 
 
-class BitcoinLSTM(nn.Module):
-    """LSTM model for Bitcoin price prediction"""
-    
-    def __init__(self, in_size=1, hid=128, layers=2, out_size=1, drop=0.3):
+class LSTMRegressor(nn.Module):
+    """LSTM model for return prediction (not price level)"""
+
+    def __init__(self, n_features: int = 11, hidden: int = 64, layers: int = 2, dropout: float = 0.2):
         super().__init__()
         self.lstm = nn.LSTM(
-            in_size, hid, 
+            input_size=n_features,
+            hidden_size=hidden,
             num_layers=layers,
-            batch_first=True, 
-            dropout=drop if layers > 1 else 0
+            batch_first=True,
+            dropout=dropout if layers > 1 else 0.0,
         )
-        self.dropout = nn.Dropout(drop)
-        self.fc = nn.Linear(hid, out_size)
+        self.dropout = nn.Dropout(dropout)
+        self.fc = nn.Linear(hidden, 1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         out, _ = self.lstm(x)
         last = out[:, -1, :]
         last = self.dropout(last)
         return self.fc(last)
+
+
+# Keep old class for backward compatibility if needed
+BitcoinLSTM = LSTMRegressor

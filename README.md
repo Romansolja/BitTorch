@@ -1,120 +1,143 @@
-# BitTorch: Bitcoin Price Prediction with PyTorch
+# README.md (UPDATE)
 
-A simple LSTM neural network built with PyTorch to predict the next-day closing price of Bitcoin (BTC-USD).
+# BitTorch: Bitcoin Return Prediction with PyTorch
 
-## Features
+An LSTM neural network built with PyTorch to predict next-day Bitcoin **returns** (not price levels).
 
-- **LSTM Neural Network**: 2-layer LSTM with dropout for time-series forecasting
-- **FastAPI REST API**: Clean interface for making predictions
-- **Prediction Tracking**: SQLite database stores all predictions for accuracy analysis
-- **Accuracy Metrics**: Automatically calculates MAE and MAPE against actual prices
+## v2.0 Changes
+
+- **Predicts returns** instead of price levels (more stationary target)
+- **Feature engineering**: RSI, volatility, momentum, MA distances
+- **Walk-forward validation**: Proper out-of-sample testing
+- **Correct baselines**: Compare against "predict 0" and "predict last return"
+- **Directional accuracy**: Track if we got up/down correct
+- **Confidence metric**: Signal strength relative to volatility
 
 ## Project Structure
-
 ```
 BitTorch/
+├── main.py                 # Training script (walk-forward + production)
+├── inference.py            # Standalone inference module
+├── artifacts/              # Production model artifacts
+│   ├── production_model.pth
+│   ├── feature_scaler.pkl
+│   └── metadata.json
+├── checkpoints/            # Per-fold checkpoints
 ├── app/
-│   ├── __init__.py
-│   ├── config.py           # Configuration settings
-│   ├── database.py         # SQLAlchemy models
 │   ├── main.py             # FastAPI application
+│   ├── config.py           # Configuration
+│   ├── database.py         # SQLAlchemy models
 │   ├── schemas.py          # Pydantic models
 │   ├── models/
-│   │   └── ml_models.py    # PyTorch LSTM model
+│   │   └── ml_models.py    # PyTorch LSTM
 │   └── services/
 │       ├── prediction.py   # Prediction logic
 │       └── price_updater.py # Actual price fetching
 ├── data/
-│   └── models/             # Trained model storage
-├── main.py                 # Training script
-├── requirements.txt
-└── README.md
+│   └── bittorch.db         # SQLite database
+└── requirements.txt
 ```
 
 ## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Romansolja/BitTorch.git
-   cd BitTorch
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+git clone https://github.com/Romansolja/BitTorch.git
+cd BitTorch
+pip install -r requirements.txt
+```
 
 ## Usage
 
 ### 1. Train the Model
-
 ```bash
 python main.py
 ```
 
-This downloads 2 years of BTC data, trains the LSTM model, and saves `best_model.pth` to `data/models/`.
+This will:
+- Download 5 years of BTC data
+- Run walk-forward validation (multiple folds)
+- Train a production model on all data
+- Save artifacts to `artifacts/`
 
-### 2. Run the API
+### 2. Standalone Inference
+```bash
+python inference.py
+```
 
+### 3. Run the API
 ```bash
 uvicorn app.main:app --reload
 ```
 
-The API will be available at `http://127.0.0.1:8000`
-
-Interactive docs at `http://127.0.0.1:8000/docs`
+API at `http://127.0.0.1:8000`, docs at `/docs`
 
 ## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/` | Welcome message |
-| GET | `/health` | API status, GPU info, model status |
-| GET | `/predict/next-day` | Get next-day price prediction |
+| GET | `/health` | API status |
+| GET | `/predict/next-day` | Get prediction (return + price + direction) |
 | GET | `/predictions/history` | View recent predictions |
-| GET | `/predictions/accuracy` | Calculate prediction accuracy |
-| POST | `/predictions/update-actual-prices` | Update predictions with actual prices |
+| GET | `/predictions/accuracy` | Calculate directional accuracy |
+| POST | `/predictions/update-actual-prices` | Update with actual prices |
 
-### Example: Get Prediction
-
-```bash
-curl http://127.0.0.1:8000/predict/next-day
-```
-
-Response:
+### Example Response
 ```json
 {
   "current_price": 105000.00,
-  "predicted_price": 106250.00,
-  "change_amount": 1250.00,
-  "change_percent": 1.19,
-  "prediction_date": "2025-01-26 10:30:00",
+  "predicted_price": 106050.00,
+  "predicted_return": 0.00995,
+  "change_percent": 1.0,
+  "direction": "up",
+  "confidence": 0.65,
+  "model_agreement": 0.8,
+  "prediction_date": "2025-01-27",
   "prediction_id": 1,
   "saved": true
 }
 ```
 
-## Model Performance
+## Model Details
 
-The LSTM model is trained with:
-- 70/20/10 train/val/test split
-- Early stopping with patience of 15 epochs
-- Learning rate scheduling
-- Gradient clipping
+**Architecture**: 2-layer LSTM → Dropout → Linear
 
-Typical results:
-- Test MAPE: ~1-2%
-- Improvement over baseline: 5-10%
+**Features** (11 total):
+- `ret_1`, `ret_2`, `ret_3`: Lagged returns
+- `vol_7`, `vol_14`: Rolling volatility
+- `mom_7`, `mom_14`: Momentum
+- `rsi_14`: RSI indicator
+- `ma10_dist`, `ma30_dist`: Distance from moving averages
+- `hl_range`: High-low range proxy
+
+**Target**: Next-day log return
+
+**Validation**: Walk-forward with expanding window
+
+## Metrics Explained
+
+| Metric | What it means |
+|--------|---------------|
+| `predicted_return` | Log return (raw model output) |
+| `change_percent` | Human-readable % change |
+| `direction` | "up" or "down" |
+| `confidence` | Signal strength vs volatility (NOT accuracy) |
+| `model_agreement` | Consistency across recent windows |
+| `directional_accuracy` | % of correct up/down calls (historical) |
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.9+
 - PyTorch
 - FastAPI
 - yfinance
 - SQLAlchemy
 - scikit-learn
+- pandas, numpy, matplotlib
 
 ## License
 
 MIT License - see [LICENSE](LICENSE)
+
+---
+
+**Disclaimer**: This is a research/educational tool. Not financial advice.

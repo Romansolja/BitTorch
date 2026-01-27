@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String
+from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -12,11 +12,16 @@ class PricePrediction(Base):
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, index=True)
-    prediction_date = Column(DateTime)  # The date we're predicting FOR
-    current_price = Column(Float)       # Price when prediction was made
-    predicted_price = Column(Float)     # What the model predicted
-    actual_price = Column(Float, nullable=True)  # Filled in later
-    model_version = Column(String, default="v1.0")
+    prediction_date = Column(DateTime)
+    current_price = Column(Float)
+    predicted_price = Column(Float)
+    predicted_return = Column(Float, nullable=True)  # NEW: log return
+    predicted_direction = Column(String, nullable=True)  # NEW: up/down
+    confidence = Column(Float, nullable=True)  # NEW
+    actual_price = Column(Float, nullable=True)
+    actual_return = Column(Float, nullable=True)  # NEW
+    direction_correct = Column(Boolean, nullable=True)  # NEW
+    model_version = Column(String, default="v2.0")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -29,20 +34,18 @@ class ModelMetrics(Base):
     train_date = Column(DateTime)
     mse = Column(Float)
     mae = Column(Float)
-    mape = Column(Float)
+    mape = Column(Float, nullable=True)
+    directional_accuracy = Column(Float, nullable=True)  # NEW
     baseline_improvement = Column(Float)
 
 
-# Database setup
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create tables
 Base.metadata.create_all(bind=engine)
 
 
 def get_db():
-    """Dependency for FastAPI endpoints"""
     db = SessionLocal()
     try:
         yield db

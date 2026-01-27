@@ -1,105 +1,97 @@
-import torch
+from datetime import datetime, timedelta
+from typing import Optional
 import numpy as np
 import yfinance as yf
-from sklearn.preprocessing import MinMaxScaler
-from datetime import datetime, timedelta
-import os
 
 from app.database import SessionLocal, PricePrediction
-from app.models.ml_models import BitcoinLSTM
-from app.config import MODEL_PATH, SEQUENCE_LENGTH
 
 
-class PredictionService:
-    def __init__(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = None
-        self.scaler = MinMaxScaler()
-        self.seq_len = SEQUENCE_LENGTH
-
-    def load_model(self) -> bool:
-        """Load the trained model from disk"""
-        self.model = BitcoinLSTM().to(self.device)
-
-        if os.path.exists(MODEL_PATH):
-            self.model.load_state_dict(
-                torch.load(MODEL_PATH, map_location=self.device)
-            )
-            self.model.eval()
-            return True
-        return False
-
-    def get_latest_data(self, days: int = 30):
-        """Fetch latest Bitcoin data from Yahoo Finance"""
-        btc = yf.download(
-            "BTC-USD", 
-            period=f"{days}d", 
-            interval="1d",
-            auto_adjust=True, 
-            progress=False
-        )
-        return btc["Close"].values.reshape(-1, 1)
-
-    def predict_next_day(self) -> dict | None:
-        """Make prediction for next day's price"""
-        if self.model is None:
-            return None
-
-        # Get recent data
-        prices = self.get_latest_data(days=30)
-
-        # Fit scaler and transform
-        self.scaler.fit(prices)
-        prices_scaled = self.scaler.transform(prices)
-
-        # Get last sequence
-        last_seq = prices_scaled[-self.seq_len:].reshape(1, self.seq_len, 1)
-        inp = torch.tensor(last_seq).float().to(self.device)
-
-        # Predict
-        with torch.no_grad():
-            pred_scaled = self.model(inp).cpu().numpy()
-
-        # Inverse transform
-        pred_price = self.scaler.inverse_transform(pred_scaled)[0][0]
-        current_price = prices[-1][0]
-
-        return {
-            "current_price": float(current_price),
-            "predicted_price": float(pred_price),
-            "change_amount": float(pred_price - current_price),
-            "change_percent": float((pred_price / current_price - 1) * 100),
-            "prediction_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-
-    def save_prediction(self, prediction_data: dict) -> int:
-        """Save prediction to database"""
+class PriceUpdater:
+    def update_actual_prices(self) -> dict:
+        """Fetch actual prices and update past predictions."""
         db = SessionLocal()
         try:
-            db_prediction = PricePrediction(
-                current_price=prediction_data["current_price"],
-                predicted_price=prediction_data["predicted_price"],
-                prediction_date=datetime.now() + timedelta(days=1),
-                created_at=datetime.now()
-            )
-            db.add(db_prediction)
-            db.commit()
-            db.refresh(db_prediction)
-            return db_prediction.id
-        finally:
-            db.close()
-
-    def get_prediction_history(self, limit: int = 10):
-        """Get recent predictions from database"""
-        db = SessionLocal()
-        try:
-            return db.query(PricePrediction) \
-                .order_by(PricePrediction.created_at.desc()) \
-                .limit(limit) \
+            pending = db.query(PricePrediction) \
+                .filter(PricePrediction.actual_price.is_(None)) \
+                .filter(PricePrediction.prediction_date <= datetime.utcnow()) \
                 .all()
+
+            if not pending:
+                return {"updated": 0, "message": "No pending predictions to update"}
+
+            dates = [p.prediction_date.strftime("%Y-%m-%d") for p in pending]
+            start = min(dates)
+            end = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+            btc = yf.download("BTC-USD", start=start, end=end, progress=False)
+            if btc.empty:
+                return {"updated": 0, "message": "Could not fetch price data"}
+
+            updated = 0
+            for pred in pending:
+                date_str = pred.prediction_date.strftime("%Y-%m-%d")
+                if date_str in btc.index.strftime("%Y-%m-%d"):
+                    actual = float(btc.loc[date_str, "Close"])
+                    pred.actual_price = actual
+
+                    if pred.current_price and pred.current_price > 0:
+                        pred.actual_return = float(np.log(actual / pred.current_price))
+
+                    if pred.predicted_direction and pred.actual_return is not None:
+                        actual_dir = "up" if pred.actual_return > 0 else "down"
+                        pred.direction_correct = (pred.predicted_direction == actual_dir)
+
+                    updated += 1
+
+            db.commit()
+            return {"updated": updated, "message": f"Updated {updated} predictions"}
+
+        finally:
+            db.close()
+
+    def calculate_accuracy_metrics(self) -> Optional[dict]:
+        """Calculate accuracy for predictions with known actual prices."""
+        db = SessionLocal()
+        try:
+            completed = db.query(PricePrediction) \
+                .filter(PricePrediction.actual_price.isnot(None)) \
+                .all()
+
+            if not completed:
+                return None
+
+            errors_price = []
+            errors_return = []
+            directions = []
+            conf_correct = []
+            conf_wrong = []
+
+            for p in completed:
+                if p.predicted_price and p.actual_price:
+                    errors_price.append(abs(p.predicted_price - p.actual_price))
+
+                if p.predicted_return is not None and p.actual_return is not None:
+                    errors_return.append(abs(p.predicted_return - p.actual_return))
+
+                if p.direction_correct is not None:
+                    directions.append(p.direction_correct)
+                    if p.confidence:
+                        if p.direction_correct:
+                            conf_correct.append(p.confidence)
+                        else:
+                            conf_wrong.append(p.confidence)
+
+            return {
+                "total_predictions": len(completed),
+                "mae_return": float(np.mean(errors_return)) if errors_return else None,
+                "mae_price": float(np.mean(errors_price)) if errors_price else None,
+                "directional_accuracy": float(np.mean(directions)) if directions else None,
+                "avg_confidence_when_correct": float(np.mean(conf_correct)) if conf_correct else None,
+                "avg_confidence_when_wrong": float(np.mean(conf_wrong)) if conf_wrong else None,
+            }
+
         finally:
             db.close()
 
 
-# Singleton instance
-prediction_service = PredictionService()
+price_updater = PriceUpdater()
