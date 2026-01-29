@@ -1,6 +1,6 @@
 # BitTorch: Bitcoin Return Prediction with PyTorch
 
-An LSTM neural network built with PyTorch to predict next-day Bitcoin **returns** (not price levels).
+BitTorch is a Bitcoin prediction tool that uses machine learning to forecast next-day price movements.
 
 ## v2.1 Changes
 
@@ -177,5 +177,6 @@ Run the model on historical data to see what it *would have predicted*. This is 
 - SQLAlchemy
 - scikit-learn
 - pandas, numpy, matplotlib
+
 
 **Disclaimer**: This is a research/educational tool. Not financial advice.
