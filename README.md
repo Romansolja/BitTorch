@@ -1,8 +1,12 @@
-# README.md (UPDATE)
-
 # BitTorch: Bitcoin Return Prediction with PyTorch
 
 An LSTM neural network built with PyTorch to predict next-day Bitcoin **returns** (not price levels).
+
+## v2.1 Changes
+
+- **Backfill endpoint**: Validate model on historical periods with proper walk-forward simulation
+- No future data leakage in backfill (uses only data up to day D to predict D+1)
+- Compares against baselines (zero return, persistence)
 
 ## v2.0 Changes
 
@@ -27,12 +31,12 @@ BitTorch/
 │   ├── main.py             # FastAPI application
 │   ├── config.py           # Configuration
 │   ├── database.py         # SQLAlchemy models
-│   ├── schemas.py          # Pydantic models
+│   ├── schemas.py          # Pydantic models (incl. BackfillRequest)
 │   ├── models/
 │   │   └── ml_models.py    # PyTorch LSTM
 │   └── services/
 │       ├── prediction.py   # Prediction logic
-│       └── price_updater.py # Actual price fetching
+│       └── price_updater.py # Actual price fetching + backfill
 ├── data/
 │   └── bittorch.db         # SQLite database
 └── requirements.txt
@@ -80,8 +84,46 @@ API at `http://127.0.0.1:8000`, docs at `/docs`
 | GET | `/predictions/history` | View recent predictions |
 | GET | `/predictions/accuracy` | Calculate directional accuracy |
 | POST | `/predictions/update-actual-prices` | Update with actual prices |
+| POST | `/predictions/backfill` | **NEW**: Run historical backtest |
 
-### Example Response
+### Backfill Endpoint
+
+Run the model on historical data to see what it *would have predicted*. This is a proper walk-forward simulation with no future data leakage.
+
+**Request:**
+```json
+{
+  "start_date": "2024-12-01",
+  "end_date": "2024-12-31",
+  "store": false
+}
+```
+
+**Response:**
+```json
+{
+  "n_days": 30,
+  "start_date": "2024-12-01",
+  "end_date": "2024-12-31",
+  "mae": 0.0234,
+  "directional_accuracy": 0.533,
+  "baseline_zero_mae": 0.0241,
+  "baseline_zero_diracc": 0.0,
+  "baseline_lastret_mae": 0.0312,
+  "baseline_lastret_diracc": 0.467,
+  "mae_improvement_vs_zero": 0.029,
+  "diracc_improvement_vs_random": 0.033,
+  "stored": false,
+  "daily_results": [...]
+}
+```
+
+**Backfill Rules (and why it's valid):**
+1. For each day D, only uses data up to D to predict D+1
+2. Uses the production scaler (no refitting per day)
+3. All rolling features are backward looking (no centered windows)
+
+### Example Prediction Response
 ```json
 {
   "current_price": 105000.00,
@@ -109,7 +151,7 @@ API at `http://127.0.0.1:8000`, docs at `/docs`
 - `ma10_dist`, `ma30_dist`: Distance from moving averages
 - `hl_range`: High-low range proxy
 
-**Target**: Next-day log return
+**Target**: Next day log return
 
 **Validation**: Walk-forward with expanding window
 
@@ -123,6 +165,8 @@ API at `http://127.0.0.1:8000`, docs at `/docs`
 | `confidence` | Signal strength vs volatility (NOT accuracy) |
 | `model_agreement` | Consistency across recent windows |
 | `directional_accuracy` | % of correct up/down calls (historical) |
+| `baseline_zero_mae` | MAE if we predicted 0 every day |
+| `baseline_lastret_mae` | MAE if we predicted last observed return |
 
 ## Requirements
 
@@ -133,11 +177,5 @@ API at `http://127.0.0.1:8000`, docs at `/docs`
 - SQLAlchemy
 - scikit-learn
 - pandas, numpy, matplotlib
-
-## License
-
-MIT License - see [LICENSE](LICENSE)
-
----
 
 **Disclaimer**: This is a research/educational tool. Not financial advice.
