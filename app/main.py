@@ -1,4 +1,4 @@
-# app/main.py (UPDATE)
+# app/main.py
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 import torch
@@ -7,6 +7,7 @@ from datetime import datetime
 from app.services.prediction import prediction_service
 from app.services.price_updater import price_updater
 from app.database import SessionLocal, PricePrediction
+from app.schemas import BackfillRequest
 
 
 @asynccontextmanager
@@ -106,3 +107,55 @@ def get_prediction_accuracy():
 def update_actual_prices():
     """Fetch actual Bitcoin prices and update past predictions."""
     return price_updater.update_actual_prices()
+
+
+@app.post("/predictions/backfill")
+def backfill_predictions(req: BackfillRequest, include_daily: bool = True):
+    """
+    Run model on historical data to simulate what it would have predicted.
+
+    IMPORTANT: This is a proper walk-forward backtest:
+    - For each day D, only data up to D is used to predict D+1
+    - Uses the production scaler (no refitting)
+    - No future data leakage
+
+    Args:
+        req: BackfillRequest with start_date, end_date, and store flag
+        include_daily: Whether to include per-day results (default True)
+
+    Returns:
+        Model metrics vs baselines, optionally with daily breakdown
+    """
+    if prediction_service.model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Model not loaded. Run 'python main.py' to train first."
+        )
+
+    # Validate date range
+    if req.end_date < req.start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="end_date must be >= start_date"
+        )
+
+    # Cap range to prevent massive requests
+    days_requested = (req.end_date - req.start_date).days
+    if days_requested > 365:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum backfill range is 365 days"
+        )
+
+    result = price_updater.backfill_historical(
+        start_date=req.start_date,
+        end_date=req.end_date,
+        prediction_service=prediction_service,
+        store=req.store,
+        include_daily=include_daily,
+    )
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return result

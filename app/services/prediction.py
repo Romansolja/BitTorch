@@ -16,6 +16,7 @@ from app.config import MODEL_PATH, SCALER_PATH, METADATA_PATH, SEQUENCE_LENGTH
 
 
 def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    """Relative Strength Index - backward-looking only."""
     delta = series.diff()
     gain = delta.clip(lower=0).rolling(period).mean()
     loss = (-delta.clip(upper=0)).rolling(period).mean()
@@ -24,12 +25,19 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 
 def make_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Build feature table (same as training)."""
+    """
+    Build feature table (same as training).
+    All rolling windows are backward-looking (past-only).
+    """
     out = df.copy()
 
     # Flatten MultiIndex columns if present
     if isinstance(out.columns, pd.MultiIndex):
         out.columns = out.columns.get_level_values(0)
+
+    # Preserve date for backfill alignment
+    if "Date" in out.columns:
+        out["date"] = pd.to_datetime(out["Date"]).dt.date
 
     out["log_close"] = np.log(out["Close"])
     out["ret1"] = out["log_close"].diff()
