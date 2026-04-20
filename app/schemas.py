@@ -115,7 +115,10 @@ class BackfillResponse(BaseModel):
     ridge_mae: Optional[float] = None
     ridge_diracc: Optional[float] = None
 
-    mae_improvement_vs_zero: float
+    mae_improvement_vs_zero: Optional[float] = Field(
+        None,
+        description="(zero_mae - mae) / zero_mae. Null when zero_mae == 0 (undefined).",
+    )
     diracc_improvement_vs_majority: float
 
     stored: bool

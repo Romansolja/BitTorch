@@ -25,7 +25,7 @@ class PricePrediction(Base):
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, index=True)
-    prediction_date = Column(DateTime)
+    prediction_date = Column(DateTime(timezone=True))
     current_price = Column(Float)
     predicted_price = Column(Float)
     predicted_return = Column(Float, nullable=True)
@@ -35,7 +35,7 @@ class PricePrediction(Base):
     actual_return = Column(Float, nullable=True)
     direction_correct = Column(Boolean, nullable=True)
     model_version = Column(String, default="v2.0")
-    created_at = Column(DateTime, default=_utcnow)
+    created_at = Column(DateTime(timezone=True), default=_utcnow)
 
 
 class ModelMetrics(Base):
@@ -44,7 +44,7 @@ class ModelMetrics(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     model_version = Column(String)
-    train_date = Column(DateTime)
+    train_date = Column(DateTime(timezone=True))
     mse = Column(Float)
     mae = Column(Float)
     mape = Column(Float, nullable=True)
@@ -52,7 +52,12 @@ class ModelMetrics(Base):
     baseline_improvement = Column(Float)
 
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# check_same_thread=False is a SQLite-only tuning (FastAPI may route a request
+# through a worker thread different from the one that opened the connection).
+# For any other driver (Postgres, MySQL, etc.) passing it raises at engine init.
+_is_sqlite = DATABASE_URL.startswith("sqlite")
+_connect_args = {"check_same_thread": False} if _is_sqlite else {}
+engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)

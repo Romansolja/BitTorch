@@ -57,7 +57,7 @@ class PriceUpdater:
                 updated += 1
 
         db.commit()
-        logger.info("Backfilled actuals for %d predictions", updated)
+        logger.info("Updated actuals for %d predictions", updated)
         return {"updated": updated, "message": f"Updated {updated} predictions"}
 
     def calculate_accuracy_metrics(self, db) -> Optional[dict]:
@@ -284,9 +284,11 @@ class PriceUpdater:
             ridge_mae = float(np.mean(np.abs(ridge_pred_returns - actual_returns)))
             ridge_diracc = float(np.mean([r["ridge_direction_correct"] for r in results]))
 
-        # mae_improvement_vs_zero: NaN if baseline is zero (all-zero returns)
-        mae_improvement = (
-            (zero_mae - mae) / zero_mae if zero_mae > 0 else float("nan")
+        # mae_improvement_vs_zero: None if the zero-prediction baseline is
+        # exactly 0 (all-zero actual returns). NaN would serialize as invalid
+        # JSON for strict parsers, so we surface the undefined case explicitly.
+        mae_improvement: Optional[float] = (
+            (zero_mae - mae) / zero_mae if zero_mae > 0 else None
         )
         diracc_improvement_vs_majority = diracc - majority_diracc
 

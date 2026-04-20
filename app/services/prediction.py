@@ -17,7 +17,7 @@ from app.config import (
     SCALER_PATH,
     SEQUENCE_LENGTH,
 )
-from app.database import PricePrediction, SessionLocal
+from app.database import PricePrediction
 from app.models.ml_models import LSTMRegressor
 from app.services.yf_client import download as yf_download, flatten_multiindex
 
