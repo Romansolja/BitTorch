@@ -49,4 +49,11 @@ def download(symbol: str, **kwargs) -> pd.DataFrame:
         logger.warning("yfinance download failed for %s: %s", symbol, e)
         raise UpstreamDataError(f"yfinance download failed for {symbol}: {e}") from e
 
+    # yf.download returns an empty DataFrame (without raising) on rate-limit
+    # or provider outage. Treat that as an upstream failure too so routes
+    # consistently return 503 rather than downstream IndexError/5xx noise.
+    if df.empty:
+        logger.warning("yfinance download returned no rows for %s", symbol)
+        raise UpstreamDataError(f"yfinance download returned no rows for {symbol}")
+
     return flatten_multiindex(df)

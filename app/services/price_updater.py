@@ -11,7 +11,7 @@ from app.config import (
     BACKFILL_MAX_DAILY_RESULTS,
 )
 from app.database import PricePrediction
-from app.services.yf_client import UpstreamDataError, download as yf_download
+from app.services.yf_client import download as yf_download
 
 if TYPE_CHECKING:
     from app.services.prediction import PredictionService
@@ -35,13 +35,9 @@ class PriceUpdater:
         start = min(dates)
         end = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
+        # yf_download raises UpstreamDataError on empty / outage — caller route
+        # maps that to 503.
         btc = yf_download("BTC-USD", start=start, end=end)
-        if btc.empty:
-            # Provider returned no rows for a valid range -> treat as upstream
-            # outage (503), not a silent 200 "no updates."
-            raise UpstreamDataError(
-                f"yfinance returned empty result for BTC-USD {start}..{end}"
-            )
 
         # Precompute {date_str: Close} once so the inner loop is O(1) per pred.
         # groupby().last() is defensive against duplicate dates in the index.
@@ -150,22 +146,14 @@ class PriceUpdater:
         fetch_start = start_date - timedelta(days=buffer_days)
         fetch_end = end_date + timedelta(days=2)
 
+        # yf_download raises UpstreamDataError on empty / outage — caller route
+        # maps that to 503.
         df = yf_download(
             "BTC-USD",
             start=fetch_start.strftime("%Y-%m-%d"),
             end=fetch_end.strftime("%Y-%m-%d"),
             interval="1d",
         )
-
-        if df.empty:
-            # Upstream outage / rate-limit, not a client error. Raising rather
-            # than returning {"error": ...} so the route maps this to 503
-            # instead of 400.
-            raise UpstreamDataError(
-                f"yfinance returned empty result for BTC-USD "
-                f"{fetch_start.isoformat()}..{fetch_end.isoformat()}"
-            )
-
         df = df.reset_index()
         df_feat = make_features(df)
 
