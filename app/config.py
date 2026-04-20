@@ -1,9 +1,41 @@
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_log = logging.getLogger(__name__)
+
+
+def _float_env(name: str, default: float) -> float:
+    """Parse a float from env with a safe default on missing/bad values.
+
+    Returning the default (with a warning) is preferable to raising at
+    import time because a misconfigured env var would otherwise prevent
+    the FastAPI app from starting and give no actionable log context.
+    """
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        _log.warning(
+            "Env var %s=%r is not a number; falling back to %s",
+            name, raw, default,
+        )
+        return default
+
+
+def _str_env(name: str) -> str | None:
+    """Return env value stripped; treat empty/whitespace-only as unset."""
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    return stripped if stripped else None
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -34,12 +66,14 @@ BACKFILL_FEATURE_BUFFER_DAYS = 90       # warmup history floor for feature rolli
 BACKFILL_FEATURE_MAX_ROLLING = 30       # longest rolling window inside make_features()
 
 # Data provider / HTTP
-YFINANCE_HTTP_TIMEOUT = float(os.getenv("YFINANCE_HTTP_TIMEOUT", "10"))
+YFINANCE_HTTP_TIMEOUT = _float_env("YFINANCE_HTTP_TIMEOUT", 10.0)
 
-# API security. If API_KEY is unset, `require_api_key` fails closed: every
-# protected route returns 503 (authentication not configured) rather than
-# being silently public. Set API_KEY in .env for local dev.
-API_KEY = os.getenv("API_KEY")
+# API security. If API_KEY is unset OR empty/whitespace-only (e.g. a bare
+# `API_KEY=` line in .env), `require_api_key` fails closed: every protected
+# route returns 503 (authentication not configured). Set API_KEY in .env
+# for local dev. Empty strings are treated as unset to avoid an accidentally
+# public API where `compare_digest("", "")` would otherwise succeed.
+API_KEY = _str_env("API_KEY")
 API_KEY_HEADER = "X-API-Key"
 
 # BTC-USD yfinance coverage begins 2014-09-17

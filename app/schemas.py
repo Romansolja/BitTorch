@@ -68,9 +68,13 @@ class BackfillRequest(BaseModel):
     def _range_valid(self) -> "BackfillRequest":
         if self.end_date < self.start_date:
             raise ValueError("end_date must be >= start_date")
-        days = (self.end_date - self.start_date).days
+        # Inclusive count — backfill_historical iterates `while current <= end`,
+        # so same-day [D, D] is 1 day, not 0.
+        days = (self.end_date - self.start_date).days + 1
         if days > BACKFILL_MAX_DAYS:
-            raise ValueError(f"Backfill range is {days} days; maximum is {BACKFILL_MAX_DAYS}")
+            raise ValueError(
+                f"Backfill range is {days} inclusive days; maximum is {BACKFILL_MAX_DAYS}"
+            )
         return self
 
 

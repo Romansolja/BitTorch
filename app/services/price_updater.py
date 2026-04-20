@@ -166,6 +166,7 @@ class PriceUpdater:
         device = prediction_service.device
 
         results = []
+        pending_inserts: list = []  # flushed in one commit at end when store=True
         skipped_missing_day = 0
         skipped_insufficient_history = 0
         skipped_no_next_day = 0
@@ -250,19 +251,35 @@ class PriceUpdater:
             })
 
             if store and db is not None:
-                self._store_backfill_prediction(
-                    db=db,
-                    current_date=current_date,
-                    target_date=next_date,
+                pending_inserts.append(PricePrediction(
                     current_price=current_price,
                     predicted_price=predicted_price,
                     predicted_return=pred_return,
+                    predicted_direction="up" if pred_return > 0 else "down",
+                    confidence=None,
+                    prediction_date=datetime.combine(
+                        next_date, datetime.min.time(), tzinfo=timezone.utc
+                    ),
                     actual_price=actual_price,
                     actual_return=actual_return,
                     direction_correct=direction_correct,
-                )
+                    model_version="v2.0-backfill",
+                    created_at=datetime.now(timezone.utc),
+                ))
 
             current_date += timedelta(days=1)
+
+        # Batch insert — one commit for the whole backfill so a large range is
+        # atomic and N× faster than per-day commits. Only happens when the
+        # caller asked to store AND provided a db session AND we produced rows.
+        actually_stored = False
+        if store and db is not None and pending_inserts:
+            db.add_all(pending_inserts)
+            db.commit()
+            actually_stored = True
+            logger.info("Stored %d backfill predictions", len(pending_inserts))
+        elif store and db is None:
+            logger.warning("store=True but no db session provided; nothing persisted")
 
         if not results:
             return {"error": "No valid prediction days in range"}
@@ -314,7 +331,7 @@ class PriceUpdater:
             "up_day_fraction": up_fraction,
             "mae_improvement_vs_zero": mae_improvement,
             "diracc_improvement_vs_majority": diracc_improvement_vs_majority,
-            "stored": store,
+            "stored": actually_stored,
             "skipped": {
                 "missing_market_day": skipped_missing_day,
                 "insufficient_history": skipped_insufficient_history,
@@ -348,34 +365,5 @@ class PriceUpdater:
             len(results), diracc, mae, response["skipped"],
         )
         return response
-
-    def _store_backfill_prediction(
-        self,
-        db,
-        current_date: date,
-        target_date: date,
-        current_price: float,
-        predicted_price: float,
-        predicted_return: float,
-        actual_price: float,
-        actual_return: float,
-        direction_correct: bool,
-    ) -> None:
-        db_prediction = PricePrediction(
-            current_price=current_price,
-            predicted_price=predicted_price,
-            predicted_return=predicted_return,
-            predicted_direction="up" if predicted_return > 0 else "down",
-            confidence=None,
-            prediction_date=datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc),
-            actual_price=actual_price,
-            actual_return=actual_return,
-            direction_correct=direction_correct,
-            model_version="v2.0-backfill",
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(db_prediction)
-        db.commit()
-
 
 price_updater = PriceUpdater()
