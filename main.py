@@ -19,6 +19,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
 
 def flatten_yf_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Flatten MultiIndex columns from yfinance."""
@@ -455,8 +456,22 @@ def train_production(
     model, _ = train_model(data.Xtr, data.ytr, data.Xva, data.yva, cfg, device)
 
     torch.save(model.state_dict(), os.path.join(out_dir, "production_model.pth"))
+
+    # --- Production Ridge baseline ---
+    Xtr_ridge = data.Xtr[:, -1, :]  # (N_train, 12)
+    ridge = Ridge(alpha=1.0)
+    ridge.fit(Xtr_ridge, data.ytr)
+    with open(os.path.join(out_dir, "ridge_baseline.pkl"), "wb") as f:
+        pickle.dump(ridge, f)
+
     with open(os.path.join(out_dir, "feature_scaler.pkl"), "wb") as f:
         pickle.dump(data.scaler, f)
+
+    # Training cutoff = last date any row of the fit scaler / training data has seen.
+    # Backfill requests with start_date <= cutoff are rejected to prevent in-sample
+    # metric inflation.
+    date_col = "Date" if "Date" in df_feat.columns else "date"
+    last_date = pd.to_datetime(df_feat[date_col].iloc[-1]).date()
 
     meta = {
         "symbol": "BTC-USD",
@@ -464,6 +479,7 @@ def train_production(
         "feature_cols": feature_cols,
         "seq_len": cfg.seq_len,
         "n_rows": n,
+        "training_cutoff": last_date.isoformat(),
         "model": {"hidden": cfg.hidden, "layers": cfg.layers, "dropout": cfg.dropout},
     }
     with open(os.path.join(out_dir, "metadata.json"), "w") as f:
@@ -531,6 +547,15 @@ def main():
         print(f"\nFold {i}: train [0,{fold.train_end}) val [{fold.train_end},{fold.val_end}) test [{fold.val_end},{fold.test_end})")
 
         data = prepare_fold_data(df_feat, feature_cols, fold, cfg.seq_len)
+
+        # --- Ridge baseline: last timestep only ---
+        Xtr_ridge = data.Xtr[:, -1, :]  # (N_train, 12)
+        Xte_ridge = data.Xte[:, -1, :]  # (N_test, 12)
+        ridge = Ridge(alpha=1.0)
+        ridge.fit(Xtr_ridge, data.ytr)
+        ridge_pred = ridge.predict(Xte_ridge)
+
+        # --- LSTM ---
         model, _ = train_model(data.Xtr, data.ytr, data.Xva, data.yva, cfg, device)
 
         torch.save(model.state_dict(), f"checkpoints/fold_{i}.pth")
@@ -546,23 +571,27 @@ def main():
             "diracc": directional_accuracy(y_true, y_pred),
             "base_mae": base["lastret_mae"],
             "base_diracc": base["lastret_diracc"],
+            "ridge_mae": mae(y_true, ridge_pred),
+            "ridge_diracc": directional_accuracy(y_true, ridge_pred),
         }
         results.append(row)
 
-        print(f"  MAE: {row['mae']:.6f} (baseline: {row['base_mae']:.6f})")
-        print(f"  DirAcc: {row['diracc']:.3f} (baseline: {row['base_diracc']:.3f})")
+        print(f"  LSTM  MAE: {row['mae']:.6f}  DirAcc: {row['diracc']:.3f}")
+        print(f"  Ridge MAE: {row['ridge_mae']:.6f}  DirAcc: {row['ridge_diracc']:.3f}")
+        print(f"  Base  MAE: {row['base_mae']:.6f}  DirAcc: {row['base_diracc']:.3f}")
 
     res_df = pd.DataFrame(results)
     print("\n" + "=" * 70)
     print("Summary")
     print(res_df.to_string(index=False))
-    print(f"\nAvg MAE: {res_df['mae'].mean():.6f} (baseline: {res_df['base_mae'].mean():.6f})")
-    print(f"Avg DirAcc: {res_df['diracc'].mean():.3f} (baseline: {res_df['base_diracc'].mean():.3f})")
+    print(f"\nAvg LSTM  MAE: {res_df['mae'].mean():.6f}  DirAcc: {res_df['diracc'].mean():.3f}")
+    print(f"Avg Ridge MAE: {res_df['ridge_mae'].mean():.6f}  DirAcc: {res_df['ridge_diracc'].mean():.3f}")
+    print(f"Avg Base  MAE: {res_df['base_mae'].mean():.6f}  DirAcc: {res_df['base_diracc'].mean():.3f}")
 
     print("\n" + "=" * 70)
     print("Training production model...")
     train_production(df_feat, feature_cols, cfg, device)
-    print("Saved: artifacts/production_model.pth, feature_scaler.pkl, metadata.json")
+    print("Saved: artifacts/production_model.pth, ridge_baseline.pkl, feature_scaler.pkl, metadata.json")
 
     plt.figure(figsize=(10, 4))
     plt.plot(df_feat["target_ret_next"].values[:300])

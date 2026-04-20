@@ -1,32 +1,45 @@
-from sqlalchemy import create_engine, Column, Integer, Float, DateTime, String, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from datetime import datetime
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    Float,
+    DateTime,
+    String,
+    Boolean,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
+
 from app.config import DATABASE_URL
 
 Base = declarative_base()
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class PricePrediction(Base):
-    """Stores each prediction made by the model"""
+    """Stores each prediction made by the model."""
     __tablename__ = "predictions"
 
     id = Column(Integer, primary_key=True, index=True)
     prediction_date = Column(DateTime)
     current_price = Column(Float)
     predicted_price = Column(Float)
-    predicted_return = Column(Float, nullable=True)  # NEW: log return
-    predicted_direction = Column(String, nullable=True)  # NEW: up/down
-    confidence = Column(Float, nullable=True)  # NEW
+    predicted_return = Column(Float, nullable=True)
+    predicted_direction = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
     actual_price = Column(Float, nullable=True)
-    actual_return = Column(Float, nullable=True)  # NEW
-    direction_correct = Column(Boolean, nullable=True)  # NEW
+    actual_return = Column(Float, nullable=True)
+    direction_correct = Column(Boolean, nullable=True)
     model_version = Column(String, default="v2.0")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow)
 
 
 class ModelMetrics(Base):
-    """Stores training metrics for each model version"""
+    """Stores training metrics for each model version."""
     __tablename__ = "model_metrics"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -35,7 +48,7 @@ class ModelMetrics(Base):
     mse = Column(Float)
     mae = Column(Float)
     mape = Column(Float, nullable=True)
-    directional_accuracy = Column(Float, nullable=True)  # NEW
+    directional_accuracy = Column(Float, nullable=True)
     baseline_improvement = Column(Float)
 
 
@@ -46,8 +59,12 @@ Base.metadata.create_all(bind=engine)
 
 
 def get_db():
+    """FastAPI dependency: yield a session, rollback on error, always close."""
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
