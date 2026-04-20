@@ -44,7 +44,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 ARTIFACTS_DIR = BASE_DIR / "artifacts"
 
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR}/bittorch.db")
+DATABASE_URL = _str_env("DATABASE_URL") or f"sqlite:///{DATA_DIR}/bittorch.db"
 
 # Artifact paths
 MODEL_PATH = ARTIFACTS_DIR / "production_model.pth"

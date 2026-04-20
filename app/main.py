@@ -92,7 +92,12 @@ def predict_next_day(save_to_db: bool = True, db: Session = Depends(get_db)):
             prediction["prediction_id"] = prediction_id
             prediction["saved"] = True
         except Exception:
+            # Explicit rollback: get_db() only rolls back when an exception
+            # propagates out of the route, but we're swallowing here so the
+            # session would otherwise be returned to the pool in a failed
+            # transaction state.
             logger.exception("Failed to save prediction")
+            db.rollback()
             prediction["saved"] = False
     else:
         prediction["saved"] = False
