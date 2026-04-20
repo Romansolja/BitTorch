@@ -40,11 +40,18 @@ class PriceUpdater:
         if btc.empty:
             return {"updated": 0, "message": "Could not fetch price data"}
 
+        # Precompute {date_str: Close} once so the inner loop is O(1) per pred.
+        # groupby().last() is defensive against duplicate dates in the index.
+        close_by_date = (
+            btc["Close"].groupby(btc.index.strftime("%Y-%m-%d")).last().to_dict()
+        )
+
         updated = 0
         for pred in pending:
             date_str = pred.prediction_date.strftime("%Y-%m-%d")
-            if date_str in btc.index.strftime("%Y-%m-%d"):
-                actual = float(btc.loc[date_str, "Close"])
+            close = close_by_date.get(date_str)
+            if close is not None:
+                actual = float(close)
                 pred.actual_price = actual
 
                 if pred.current_price and pred.current_price > 0:
@@ -85,7 +92,7 @@ class PriceUpdater:
 
             if p.direction_correct is not None:
                 directions.append(p.direction_correct)
-                if p.confidence:
+                if p.confidence is not None:
                     (conf_correct if p.direction_correct else conf_wrong).append(p.confidence)
 
         return {

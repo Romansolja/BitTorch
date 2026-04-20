@@ -1,4 +1,5 @@
 import logging
+import secrets
 from typing import Optional
 
 from fastapi import Header, HTTPException, status
@@ -19,7 +20,9 @@ def require_api_key(
             detail="API authentication is not configured",
         )
 
-    if not api_key_header or api_key_header != API_KEY:
+    # compare_digest is constant-time in the content; naive `!=` short-circuits
+    # on the first differing byte and leaks a timing oracle on the key prefix.
+    if not api_key_header or not secrets.compare_digest(api_key_header, API_KEY):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",
