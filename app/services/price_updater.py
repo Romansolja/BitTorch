@@ -11,7 +11,7 @@ from app.config import (
     BACKFILL_MAX_DAILY_RESULTS,
 )
 from app.database import PricePrediction
-from app.services.yf_client import download as yf_download
+from app.services.yf_client import UpstreamDataError, download as yf_download
 
 if TYPE_CHECKING:
     from app.services.prediction import PredictionService
@@ -37,7 +37,11 @@ class PriceUpdater:
 
         btc = yf_download("BTC-USD", start=start, end=end)
         if btc.empty:
-            return {"updated": 0, "message": "Could not fetch price data"}
+            # Provider returned no rows for a valid range -> treat as upstream
+            # outage (503), not a silent 200 "no updates."
+            raise UpstreamDataError(
+                f"yfinance returned empty result for BTC-USD {start}..{end}"
+            )
 
         # Precompute {date_str: Close} once so the inner loop is O(1) per pred.
         # groupby().last() is defensive against duplicate dates in the index.
@@ -154,7 +158,13 @@ class PriceUpdater:
         )
 
         if df.empty:
-            return {"error": "Could not fetch price data"}
+            # Upstream outage / rate-limit, not a client error. Raising rather
+            # than returning {"error": ...} so the route maps this to 503
+            # instead of 400.
+            raise UpstreamDataError(
+                f"yfinance returned empty result for BTC-USD "
+                f"{fetch_start.isoformat()}..{fetch_end.isoformat()}"
+            )
 
         df = df.reset_index()
         df_feat = make_features(df)

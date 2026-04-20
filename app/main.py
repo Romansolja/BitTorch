@@ -22,10 +22,10 @@ from app.services.prediction import prediction_service
 from app.services.price_updater import price_updater
 from app.services.yf_client import UpstreamDataError
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+# Note: no logging.basicConfig() here — uvicorn/gunicorn configure the root
+# logger for production, and calling basicConfig at import time clobbers that.
+# If you want logs while running ad-hoc scripts, configure logging in your
+# entrypoint, not in the library module.
 logger = logging.getLogger(__name__)
 
 
@@ -110,23 +110,28 @@ def get_prediction_history(limit: int = 10, db: Session = Depends(get_db)):
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
 
-    history = prediction_service.get_prediction_history(db, limit)
-    items = [
-        PredictionHistoryItem(
-            id=p.id,
-            prediction_date=p.prediction_date.isoformat() if p.prediction_date else None,
-            current_price=p.current_price,
-            predicted_price=p.predicted_price,
-            predicted_return=p.predicted_return,
-            direction=p.predicted_direction,
-            confidence=p.confidence,
-            actual_price=p.actual_price,
-            actual_return=p.actual_return,
-            direction_correct=p.direction_correct,
-            created_at=p.created_at.isoformat() if p.created_at else None,
-        )
-        for p in history
-    ]
+    try:
+        history = prediction_service.get_prediction_history(db, limit)
+        items = [
+            PredictionHistoryItem(
+                id=p.id,
+                prediction_date=p.prediction_date.isoformat() if p.prediction_date else None,
+                current_price=p.current_price,
+                predicted_price=p.predicted_price,
+                predicted_return=p.predicted_return,
+                direction=p.predicted_direction,
+                confidence=p.confidence,
+                actual_price=p.actual_price,
+                actual_return=p.actual_return,
+                direction_correct=p.direction_correct,
+                created_at=p.created_at.isoformat() if p.created_at else None,
+            )
+            for p in history
+        ]
+    except Exception:
+        logger.exception("get_prediction_history failed")
+        raise HTTPException(status_code=500, detail="history query failed")
+
     return PredictionHistoryResponse(count=len(items), predictions=items)
 
 
@@ -137,7 +142,12 @@ def get_prediction_history(limit: int = 10, db: Session = Depends(get_db)):
 )
 def get_prediction_accuracy(db: Session = Depends(get_db)):
     """Calculate accuracy metrics for predictions with known actual prices."""
-    metrics = price_updater.calculate_accuracy_metrics(db)
+    try:
+        metrics = price_updater.calculate_accuracy_metrics(db)
+    except Exception:
+        logger.exception("calculate_accuracy_metrics failed")
+        raise HTTPException(status_code=500, detail="accuracy query failed")
+
     if metrics is None:
         raise HTTPException(
             status_code=404,
