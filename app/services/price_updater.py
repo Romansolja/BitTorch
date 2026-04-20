@@ -3,7 +3,6 @@ from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-import pandas as pd
 import torch
 
 from app.config import (

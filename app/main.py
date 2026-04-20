@@ -1,7 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-import requests
 import torch
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
@@ -21,6 +20,7 @@ from app.schemas import (
 )
 from app.services.prediction import prediction_service
 from app.services.price_updater import price_updater
+from app.services.yf_client import UpstreamDataError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,8 +73,8 @@ def predict_next_day(save_to_db: bool = True, db: Session = Depends(get_db)):
     """Get prediction for next day's Bitcoin return and price."""
     try:
         prediction = prediction_service.predict_next_day()
-    except requests.RequestException as e:
-        logger.warning("yfinance fetch failed: %s", e)
+    except UpstreamDataError as e:
+        logger.warning("upstream data fetch failed: %s", e)
         raise HTTPException(status_code=503, detail="upstream data provider unavailable")
     except Exception:
         logger.exception("predict_next_day failed")
@@ -155,8 +155,8 @@ def update_actual_prices(db: Session = Depends(get_db)):
     """Fetch actual Bitcoin prices and update past predictions."""
     try:
         return price_updater.update_actual_prices(db)
-    except requests.RequestException as e:
-        logger.warning("yfinance fetch failed: %s", e)
+    except UpstreamDataError as e:
+        logger.warning("upstream data fetch failed: %s", e)
         raise HTTPException(status_code=503, detail="upstream data provider unavailable")
     except Exception:
         logger.exception("update_actual_prices failed")
@@ -194,8 +194,8 @@ def backfill_predictions(
             include_daily=include_daily,
             db=db,
         )
-    except requests.RequestException as e:
-        logger.warning("yfinance fetch failed during backfill: %s", e)
+    except UpstreamDataError as e:
+        logger.warning("upstream data fetch failed during backfill: %s", e)
         raise HTTPException(status_code=503, detail="upstream data provider unavailable")
     except Exception:
         logger.exception("backfill_predictions failed")

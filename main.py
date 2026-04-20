@@ -467,9 +467,13 @@ def train_production(
     with open(os.path.join(out_dir, "feature_scaler.pkl"), "wb") as f:
         pickle.dump(data.scaler, f)
 
-    # Training cutoff = last date any row of the fit scaler / training data has seen.
-    # Backfill requests with start_date <= cutoff are rejected to prevent in-sample
-    # metric inflation.
+    # Training cutoff = last date in the production training+validation window
+    # (df_feat[-1]). The scaler is fit on [:train_end] and the LSTM uses
+    # [train_end:val_end] only for early-stopping checkpoint selection — but
+    # the saved weights were chosen to minimize that val loss, so val dates
+    # have influenced the persisted model. Using df_feat[-1] (= val_end - 1)
+    # is the conservative choice: backfills on any earlier date could inflate
+    # metrics because the model was picked to perform well on that range.
     date_col = "Date" if "Date" in df_feat.columns else "date"
     last_date = pd.to_datetime(df_feat[date_col].iloc[-1]).date()
 
